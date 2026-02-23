@@ -1,0 +1,73 @@
+name: Trigger on pull_request (plan) and merge_group (apply) events with Terraform
+
+on:
+    pull_request:
+        branches: [main]
+        paths: [terraform/**, .github/workflows/terraform-TF-via-PR]
+        types: [opened, synchronize, reopened]
+
+    merge_group:
+        types: [checks_requested]
+
+env:
+    AWS_ACCOUNT:
+    AWS_REGION:
+    PLAN_ROLE:
+    APPLY_ROLE:
+
+jobs:
+    terrafrom:
+        runs-on: ubuntu-24.04
+        defaults:
+            run:
+                working-directory: terraform/
+
+        permissions:
+            contents: read # Required to checkout repository.
+            id-token: write # Required to authenticate via OIDC.
+            checks: write # Required to add status summary.
+            actions: read # Required to download artifact.
+            pull-requests: write # Required to add PR comment and label.
+            security-events: write # Required for checkov
+
+        environment:
+
+        concurrency:
+            # All merge_group runs share the group <workflow>-apply, so they queue and never race on state.
+            # Combined with cancel-in-progress: false, a second apply will wait rather than get cancelled.
+            cancel-in-progress: false
+            group: ${{ github.workflow }}-${{ github.event_name == 'merge_group' && 'apply' || github.ref }}
+
+        steps:
+            # Job that notifies the slack channel on failure
+
+            # 1. Checkout repository (disable persist-credentials)
+
+            # 2. Auth with AWS (dynamic switch: merge_group → Apply role, else Plan role)
+
+            # 3. Verify AWS identity (aws sts get-caller-identity)
+
+            # 4. Setup TF (hashicorp/setup-terraform, terraform_wrapper: false for TF-via-PR)
+
+            # 5. TFLint  (PR only)
+            #    setup-tflint + tflint --init + tflint --recursive
+            #    Run this BEFORE TF-via-PR so linting gates the plan
+
+            # 6. Checkov Static Analysis — EXPLICIT STEP (PR only)
+            #    Run after TFLint, before provisioning
+
+            # 7. Cache TF providers (actions/cache on ~/.terraform.d/plugin-cache)
+
+            # 8. Provision TF with TF-via-PR
+            #    ↳ This internally handles: init → fmt check → validate → plan/apply
+            #    fmt, init, validate do NOT need separate steps
+
+            # 9. Troubleshoot TF on error with AI (on: failure)
+
+            # 10. [Rollback logic — only on apply failure in merge_group]
+
+            #  11. Clear directory — the workspace currently has the failed branch's code. You can't just checkout over it cleanly in all cases, so nuke it first.
+
+            # Checkout main — get the last known-good config.
+
+            # Rollback TF — run apply with arg-auto-approve: true against main, which drives infrastructure back to the state that main describes.
